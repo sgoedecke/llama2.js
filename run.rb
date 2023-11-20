@@ -1,7 +1,6 @@
 require 'byebug'
-require 'matrix'
 
-checkpoint_path = "stories15M.bin"#ARGV[0
+checkpoint_path = "stories15M.bin"#ARGV[0]
 puts "Loading model checkpoint from #{checkpoint_path}..."
 
 checkpoint = File.open(checkpoint_path)
@@ -64,7 +63,7 @@ wv = checkpoint.read(config.n_layers * config.dim * (config.n_kv_heads * head_si
 wo = checkpoint.read(config.n_layers * config.dim * (config.n_heads * head_size) * 4).unpack("e*").each_slice(config.dim ** 2).to_a.map { |x| x.each_slice(config.dim).to_a }
 rms_ffn_weight = checkpoint.read(config.n_layers * config.dim * 4).unpack("e*").each_slice(config.dim).to_a
 w1 = checkpoint.read(config.n_layers * config.dim * config.hidden_dim * 4).unpack("e*").each_slice(config.dim * config.hidden_dim).to_a.map { |x| x.each_slice(config.dim).to_a }
-w2 = checkpoint.read(config.n_layers * config.dim * config.hidden_dim * 4).unpack("e*").each_slice(config.dim * config.hidden_dim).to_a.map { |x| x.each_slice(config.dim).to_a }
+w2 = checkpoint.read(config.n_layers * config.dim * config.hidden_dim * 4).unpack("e*").each_slice(config.dim * config.hidden_dim).to_a.map { |x| x.each_slice(config.hidden_dim).to_a }
 w3 = checkpoint.read(config.n_layers * config.dim * config.hidden_dim * 4).unpack("e*").each_slice(config.dim * config.hidden_dim).to_a.map { |x| x.each_slice(config.dim).to_a }
 rms_final_weight = checkpoint.read((config.dim + 2*(config.seq_len * head_size/2)) * 4).unpack("e*")
 wcls = token_embedding_table#.flatten.each_slice(config.vocab_size).to_a # re-partition this?? I think?
@@ -205,7 +204,7 @@ def softmax(array)
     max = array.max  # To improve numerical stability
     exps = array.map { |x| Math.exp(x - max) }
     sum_of_exps = exps.sum
-    exps.map { |exp| exp / sum_of_exps }
+    exps.map { |exp| (exp / sum_of_exps) }
 end
 
 # I fully gave up on making this idiomatic ruby
@@ -220,7 +219,7 @@ def matmul(x, w)
     (0...(d-1)).each do |i|
       val = 0.0
       (0...(x.size)).each do |j|
-        val += w[i][j].to_f * x[j].to_f
+        val += (w[i][j].to_f * x[j].to_f)
       end
 
       xout[i] = val
@@ -238,11 +237,9 @@ while (pos < steps) do
     run_state.x = weights.token_embedding_table[token]
 
 
-    # config.n_layers.times do |i| # forward all the layers
-    2.times do |i| # forward all the layers
+    config.n_layers.times do |i| # forward all the layers
 
         run_state.xb = rmsnorm(run_state.x, weights.rms_att_weight[i]) # attention rmsnorm
-        puts "layer #{i}, xb0 #{run_state.xb[0]}, x #{run_state.x[0]}"
 
         # qkv matmuls
         run_state.q = matmul(run_state.xb,  weights.wq[i])
@@ -280,8 +277,10 @@ while (pos < steps) do
         run_state.key_cache[pos] = run_state.k
         run_state.value_cache[pos] = run_state.v
 
-        # multihead attention. iterate over all heads
+        # multihead attention. iterate over all heads. Could be parallelized in a real impl
         config.n_heads.times do |head_index|
+            # puts "layer #{i}, xb0 #{run_state.xb[0]}, x #{run_state.x[0]} (head #{head_index})"
+
             q = run_state.q[(head_index * head_size)..((head_index * head_size) + head_size - 1)] # get the query vec for this head
             # att = run_state.att[head_index] # get the attention scores
 
@@ -337,13 +336,12 @@ while (pos < steps) do
         end
 
         # final matmul to get ffn output
-        run_state.xb = matmul(run_state.hb, weights.w2[i]) # not sure why I have to transpose here...
+        run_state.xb = matmul(run_state.hb, weights.w2[i])
 
         # residual connection again?
         config.dim.times do |j|
             run_state.x[j] += run_state.xb2[j]
         end
-
     end
 
     # final rmsnorm
@@ -356,7 +354,7 @@ while (pos < steps) do
 
         token = prompt_tokens[pos+1]
     else
-        puts "Options: " + run_state.logits.max(3).map { |l| tokenizer.vocab[run_state.logits.index(l)] }.join(", ")
+        # puts "Options: " + run_state.logits.max(3).map { |l| tokenizer.vocab[run_state.logits.index(l)] }.join(", ")
     
         # Ultra simple sample: just take one of the top 3
         token = run_state.logits.index(run_state.logits.max(3).sample)
