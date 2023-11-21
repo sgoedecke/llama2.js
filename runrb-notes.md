@@ -11,3 +11,23 @@ Once more in node
 
 oh god damn it, the CPP port is the only one to actually factor out the tensors: https://github.com/leloykun/llama2.cpp/blob/master/run.cpp
 
+OK, ported. Went through line by line and fixed a typo (xb instead of xb2). Now I notice it's not tokenizing properly.
+
+OK, tokenizing fine. After some fiddling to make sure I prefix the prompt with an empty character, etc, it now generates the same as llama.c2 for the first four or so new tokens. Then it doesn't. Could be something to do with the different RoPE implementation? It feels like it might be attention-related, since it only appears past five tokens or so
+
+Note: I'm still doing temp 0 both on run.c and my impl, so comparison is easier.
+
+generated tokens:
+
+```
+token 1
+token 512
+token 278
+token 14089
+token 29892
+token 727
+token 471
+token 263
+token 2217 <-- here's where they begin to differ, at pos=8
+token 7826
+```

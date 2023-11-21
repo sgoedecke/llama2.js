@@ -766,6 +766,7 @@ void generate(Transformer *transformer, Tokenizer *tokenizer, Sampler *sampler, 
         char* piece = decode(tokenizer, token, next);
         safe_printf(piece); // same as printf("%s", piece), but skips "unsafe" bytes
         fflush(stdout);
+        fprintf(stderr, "\n%d\n", token);
         token = next;
 
         // init the timer here because the first iteration can be slower

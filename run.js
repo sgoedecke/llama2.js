@@ -114,7 +114,7 @@ weights.freqCisImag = splitFloat32Array(weights.freqCisImag, config.seqLen);
 
 weights.wcls = weights.tokenEmbeddingTable
 
-console.log("Constructed weights:", weights)
+console.log("Constructed weights!")
 
 // OK, now let's build the tokenizer
 console.log("Loading model checkpoint from", tokenizer_path)
@@ -129,9 +129,9 @@ tokenizer.vocab = []
 for (let i = 0; i < config.vocabSize; i++) {
     score = tokenizerBin.readFloatLE(offset)
     offset += FLOAT_SIZE
-    tokenizer.vocabScores.push(score)
+    tokenizer.vocabScores[i] = score
     
-    len = tokenizerBin.readUInt32LE(offset)
+    len = tokenizerBin.readInt32LE(offset)
     offset += FLOAT_SIZE
     
     let str = "";
@@ -144,7 +144,9 @@ for (let i = 0; i < config.vocabSize; i++) {
 // we're skipping byte pieces and sortedVocab as unnecessary for now
 // time to generate! let's start by encoding a prompt
 
-const prompt = "Once upon a"
+// let prompt = "In the"
+let prompt = process.argv[3]
+if (prompt[0] != " ") { prompt = " " + prompt } // see add_dummy_prefix from llama2
 const promptTokens = []
 
 prompt.split("").forEach((char) => {
@@ -153,32 +155,47 @@ prompt.split("").forEach((char) => {
 
 const tries = 50
 for (let i = 0; i < tries; i++) {
-    promptTokens.forEach((token, index) => {
-        const nextToken = promptTokens[index+1]
+    let bestScore = -1e10
+    let bestId = -1
+    let bestIdx = -1
+
+    for (let i = 0; i < promptTokens.length - 1; ++i) {
+        const token = promptTokens[i]
+        const nextToken = promptTokens[i+1]
         if (nextToken == undefined) {
-            return
+            continue
         }
         const mergedToken = tokenizer.vocab[token] + tokenizer.vocab[nextToken]
         const mergedTokenIndex = tokenizer.vocab.indexOf(mergedToken)
         
-        if (mergedTokenIndex == undefined) {
-            return
+        if (mergedTokenIndex == undefined || mergedTokenIndex == -1) {
+            continue
         }
         
-        if (tokenizer.vocabScores[mergedTokenIndex] > tokenizer.vocabScores[token]) {
-            promptTokens.splice(index, 2, mergedTokenIndex)
+        if (tokenizer.vocabScores[mergedTokenIndex] > bestScore) {
+            bestScore = tokenizer.vocabScores[mergedTokenIndex]
+            bestId = mergedTokenIndex
+            bestIdx = i
         }
-    })
+    }
+
+    if (bestIdx == -1) { break } // no mergeable pairs left, we're done
+
+    promptTokens.splice(bestIdx, 2, bestId)
+
 }
+
+debugger
 
 // Now we have our prompt tokenized into a list of token ids
 // Let's get started
 
-const steps = 50 // the -n param in llama2.c
+const steps = Number(process.argv[2]) // the -n param in llama2.c
 let pos = 0
-promptTokens.unshift(1) // 1 = BOS token in Llama-2 sentence-piece
+promptTokens.unshift(1) // 1 = BOS (beginning of string) token in Llama-2 sentence-piece
 const numPromptTokens = promptTokens.length
 let token  = promptTokens[0]
+let next
 
 const runState = {
     // current wave of activations
@@ -197,12 +214,9 @@ const runState = {
     valueCache: new Float32Array(config.nLayers * config.seqLen * config.dim), // (layer, seq_len, dim)
 };
 runState.keyCache = splitFloat32Array(runState.keyCache, config.nLayers)
-    .map((arr) => splitFloat32Array(runState.keyCache, config.seqLen)) // 3d tensor
+    .map((arr) => splitFloat32Array(arr, config.seqLen)) // 3d tensor
 runState.valueCache = splitFloat32Array(runState.valueCache, config.nLayers)
-.map((arr) => splitFloat32Array(runState.valueCache, config.seqLen)) // 3d tensor
-
-const kvDim = (config.dim * config.nKVHeads) / config.nHeads
-const kvMul = config.nHeads / config.nKVHeads
+    .map((arr) => splitFloat32Array(arr, config.seqLen)) // 3d tensor
 
 function matmul(output, input, weight) {
     for (let i = 0; i < output.length; i++) {
@@ -275,23 +289,7 @@ while (pos < steps) {
         matmul(runState.v, runState.xb, weights.wv[layer])
 
         // RoPE relative pos encoding: complex-valued rotate q and k in each head
-        // llama2.c iterates two-at-a-time up dim, but this is the same as going by head size
-        // for (let i = 0; i < config.dim; i += 2) {
-        //     const headDim = i % headSize;
-        //     const freq = 1 / Math.pow(10000, headDim / headSize);    
-        //     const val = pos * freq;
-        //     const fcr = Math.cos(val);
-        //     const fci = Math.sin(val);
-        //     const rotn = i < kvDim ? 2 : 1; 
-        //     for (let v = 0; v < rotn; v++) {
-        //         let vec = v === 0 ? runState.q : runState.k; // this NaNs them
-        //         const v0 = vec[i];
-        //         const v1 = vec[i+1];
-
-        //         vec[i] = v0 * fcr - v1 * fci;
-        //         vec[i+1] = v0 * fci + v1 * fcr;
-        //     }
-        // }
+        // llama 2 doesn't use freqx from the weights, but the port I copied does
         for (let head = 0; head < config.nHeads; head++) {
             const start = head * headSize;
             for (let i = 0; i < headSize; i += 2) {
@@ -301,15 +299,13 @@ while (pos < steps) {
                 const k1 = runState.k[start + i + 1];
                 const fcr = weights.freqCisReal[pos][i / 2]
                 const fci = weights.freqCisImag[pos][i / 2]
-                debugger
+
                 runState.q[start + i] = q0 * fcr - q1 * fci;
                 runState.q[start + i + 1] = q0 * fci + q1 * fcr;
                 runState.k[start + i] = k0 * fcr - k1 * fci;
                 runState.k[start + i + 1] = k0 * fci + k1 * fcr;
             }
         }
-        debugger
-
 
         // populate key/value caches. llama.c does this way above here but all ports do this here
         runState.keyCache[layer][pos] = new Float32Array(runState.k)
@@ -338,8 +334,6 @@ while (pos < steps) {
                     runState.xb[head * headSize + i] += runState.att[t] * runState.valueCache[layer][t][head * headSize + i];
                 }
             }
-
-
         }
 
         // final matmul to get the output of the attention
@@ -354,25 +348,23 @@ while (pos < steps) {
         
         matmul(runState.hb, runState.xb, weights.w1[layer])
         matmul(runState.hb2, runState.xb, weights.w3[layer])
-        
+
         // SwiGLU non-linearity
         for (let i = 0; i < config.hiddenDim; i++) {
             runState.hb[i] = runState.hb[i] * (1.0 / (1.0 + Math.exp(-runState.hb[i])));
         }
         // elementwise mult with w3(x)
         for (let i = 0; i < config.hiddenDim; i++) {
-            runState.hb[i] = runState.hb[i] * runState.hb[i];
+            runState.hb[i] = runState.hb[i] * runState.hb2[i];
         }
-
 
         // final matmul for ffn output
         matmul(runState.xb, runState.hb, weights.w2[layer])
-        
+
         // residual connection
         for (let i = 0; i < runState.xb.length; i++) {
             runState.x[i] += runState.xb[i];
         }
-        
     }
     
     // final rmsnorm
@@ -381,24 +373,30 @@ while (pos < steps) {
     // classifier into logits
     matmul(runState.logits, runState.x, weights.wcls); // could I just reuse tokenEmbeddingTable? some ports do
 
-    if (pos < numPromptTokens) {
+    if (pos < numPromptTokens - 1) {
         // still in prompt
-        token = promptTokens[pos]
+        next = promptTokens[pos + 1]
     } else {
         // simplest possible topp over the logits
         debugger
-        const numToSample = 5
+        const numToSample = 1
         const topp = Array.from(runState.logits).sort((a, b) => b - a).slice(0, numToSample).map(x => runState.logits.indexOf(x))//.map(x => tokenizer.vocab[x])
-        token = randomSample(topp)
+        next = randomSample(topp)
     }
 
-    let piece = tokenizer.vocab[token]
+    let piece = tokenizer.vocab[next]
     if (piece == undefined) {
         debugger
         piece = "<oops>"
         token = 1
     }
-    process.stdout.write(piece)
+
+    // I should really decode these bytes instead, but it doesn't seem worth it
+    if (piece.match(/^<0x/)) { piece = " " }
+
+    // process.stdout.write(piece)
+    console.log("token", token, pos)
+    token = next
     
     pos += 1
 }
