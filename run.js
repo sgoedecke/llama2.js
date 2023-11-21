@@ -185,8 +185,6 @@ for (let i = 0; i < tries; i++) {
 
 }
 
-debugger
-
 // Now we have our prompt tokenized into a list of token ids
 // Let's get started
 
@@ -207,7 +205,8 @@ const runState = {
     q: new Float32Array(config.dim), // query (dim,)
     k: new Float32Array(config.dim), // key (dim,)
     v: new Float32Array(config.dim), // value (dim,)
-    att: new Float32Array(config.seqLen), // buffer for scores/attention values // run.js has (n_heads, seq_len) instead
+    // NB: this was a bug in at least one of the ports, I think: att was initialized too small (without * nHeads)
+    att: new Float32Array(config.seqLen * config.nHeads), // buffer for scores/attention values // run.js has (n_heads, seq_len) instead
     logits: new Float32Array(config.vocabSize), // output logits
     // kv cache
     keyCache: new Float32Array(config.nLayers * config.seqLen * config.dim),   // (layer, sq_len, dim)
@@ -277,6 +276,10 @@ while (pos < steps) {
     // forward pass
     // copy the token embedding into x
     runState.x = new Float32Array(weights.tokenEmbeddingTable[token])
+
+    if (pos == 7) {
+        debugger
+    }
     
     // forward each layer
     for (let layer = 0; layer < config.nLayers; layer++) {
@@ -312,26 +315,35 @@ while (pos < steps) {
         runState.valueCache[layer][pos] = new Float32Array(runState.v)
 
         // multi-head attention, iterate over all heads. could parallelize this in theory.
-        for (let head = 0; head < config.nHeads; head++) {          
+        for (let head = 0; head < config.nHeads; head++) {
+            const att = runState.att.subarray(head * config.seqLen, (head + 1) * config.seqLen)          
+            debugger
             for (let t = 0; t <= pos; t++) {              
                 // att score
                 let score = 0;
                 for (let i = 0; i < headSize; i++) {
                     // hmm
-                    score += runState.q[head * headSize + i] * runState.keyCache[layer][pos][head * headSize + i];
+                    const qkDotProd = runState.q[head * headSize + i] * runState.keyCache[layer][t][head * headSize + i];
+                    score += qkDotProd
                 }
+
                 score /= Math.sqrt(headSize);
                 // save to att buffer  
-                runState.att[t] = score; 
+                att[t] = score;
+                // console.log("pos", pos, "head", head, "att", runState.att[t])
             }
+
+            debugger
+            // console.log("pos", pos, "head", head, "kc", runState.q.slice(headSize, headSize + 3))
+
             // softmax att weights  
-            softmax(runState.att, pos + 1);
+            softmax(att, pos + 1);
 
             // weighted sum of v into xb
             for (let i = 0; i < headSize; i++) {
                 runState.xb[head * headSize + i] = 0;
                 for (let t = 0; t <= pos; t++) {
-                    runState.xb[head * headSize + i] += runState.att[t] * runState.valueCache[layer][t][head * headSize + i];
+                    runState.xb[head * headSize + i] += att[t] * runState.valueCache[layer][t][head * headSize + i];
                 }
             }
         }
@@ -378,7 +390,6 @@ while (pos < steps) {
         next = promptTokens[pos + 1]
     } else {
         // simplest possible topp over the logits
-        debugger
         const numToSample = 1
         const topp = Array.from(runState.logits).sort((a, b) => b - a).slice(0, numToSample).map(x => runState.logits.indexOf(x))//.map(x => tokenizer.vocab[x])
         next = randomSample(topp)
@@ -386,7 +397,6 @@ while (pos < steps) {
 
     let piece = tokenizer.vocab[next]
     if (piece == undefined) {
-        debugger
         piece = "<oops>"
         token = 1
     }
@@ -394,8 +404,8 @@ while (pos < steps) {
     // I should really decode these bytes instead, but it doesn't seem worth it
     if (piece.match(/^<0x/)) { piece = " " }
 
-    // process.stdout.write(piece)
-    console.log("token", token, pos)
+    process.stdout.write(piece)
+    // console.log("token", token, pos)
     token = next
     
     pos += 1
