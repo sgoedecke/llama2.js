@@ -1,8 +1,43 @@
 const fs = require('fs');
 
 const FLOAT_SIZE = 4
-const checkpoint_path = "stories15M.bin"
+const checkpoint_path = "stories42M.bin" // 42, 15
 const tokenizer_path = "tokenizer.bin"
+
+const colours = {
+    reset: "\x1b[0m",
+    bright: "\x1b[1m",
+    dim: "\x1b[2m",
+    underscore: "\x1b[4m",
+    blink: "\x1b[5m",
+    reverse: "\x1b[7m",
+    hidden: "\x1b[8m",
+    
+    fg: {
+        black: "\x1b[30m",
+        red: "\x1b[31m",
+        green: "\x1b[32m",
+        yellow: "\x1b[33m",
+        blue: "\x1b[34m",
+        magenta: "\x1b[35m",
+        cyan: "\x1b[36m",
+        white: "\x1b[37m",
+        gray: "\x1b[90m",
+        crimson: "\x1b[38m" // Scarlet
+    },
+    bg: {
+        black: "\x1b[40m",
+        red: "\x1b[41m",
+        green: "\x1b[42m",
+        yellow: "\x1b[43m",
+        blue: "\x1b[44m",
+        magenta: "\x1b[45m",
+        cyan: "\x1b[46m",
+        white: "\x1b[47m",
+        gray: "\x1b[100m",
+        crimson: "\x1b[48m"
+    }
+};
 
 console.log("Loading model checkpoint from", checkpoint_path)
 
@@ -272,15 +307,14 @@ function randomSample(array) {
     return array[index];
 }
 
+const output = []
+
 while (pos < steps) {
     // forward pass
     // copy the token embedding into x
     runState.x = new Float32Array(weights.tokenEmbeddingTable[token])
 
-    if (pos == 7) {
-        debugger
-    }
-    
+   
     // forward each layer
     for (let layer = 0; layer < config.nLayers; layer++) {
 
@@ -317,7 +351,6 @@ while (pos < steps) {
         // multi-head attention, iterate over all heads. could parallelize this in theory.
         for (let head = 0; head < config.nHeads; head++) {
             const att = runState.att.subarray(head * config.seqLen, (head + 1) * config.seqLen)          
-            debugger
             for (let t = 0; t <= pos; t++) {              
                 // att score
                 let score = 0;
@@ -330,11 +363,8 @@ while (pos < steps) {
                 score /= Math.sqrt(headSize);
                 // save to att buffer  
                 att[t] = score;
-                // console.log("pos", pos, "head", head, "att", runState.att[t])
             }
 
-            debugger
-            // console.log("pos", pos, "head", head, "kc", runState.q.slice(headSize, headSize + 3))
 
             // softmax att weights  
             softmax(att, pos + 1);
@@ -404,10 +434,49 @@ while (pos < steps) {
     // I should really decode these bytes instead, but it doesn't seem worth it
     if (piece.match(/^<0x/)) { piece = " " }
 
-    process.stdout.write(piece)
+    // calculate the attention matrix at this token
+    let mashedAtt = runState.att.subarray(0, config.seqLen)
+    for (let head = 1; head < config.nHeads; head++) {
+        const att = runState.att.subarray(head * config.seqLen, (head + 1) * config.seqLen)
+        for (let i = 0; i < att.length; i++) {
+            mashedAtt[i] += att[i]
+        }
+    }
+    output.push({
+        piece: piece,
+        token: token,
+        att: mashedAtt
+    })
+
+    console.clear()
+    // console.log(output.map(x => x.piece).join(""))
+    // process.stdout.write(piece)
+    buf = ''
+    output.forEach((chunk, i) => {
+        let colour
+        const currentAttention = output[output.length - 1].att[i]
+        if (currentAttention > 0.7) {
+            colour = colours.bright
+        } else if (currentAttention > 0.1) {
+            colour = colours.reset
+        } else {
+            colour = colours.dim
+        }
+        buf += colour
+        buf += chunk.piece
+        buf += colours.reset
+    })
+    process.stdout.write(buf)
+
     // console.log("token", token, pos)
+
     token = next
-    
+
+    // hack to pause for keypress between tokens
+    // var fd = fs.openSync("/dev/stdin", "rs")
+    // fs.readSync(fd, new Buffer(1), 0, 1)
+    // fs.closeSync(fd)
+
     pos += 1
 }
 
