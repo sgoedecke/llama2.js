@@ -5,16 +5,10 @@ const { loadTokenizer, tokenizePrompt } = require('./tokenizer.js');
 
 const checkpoint_path = "stories42M.bin" // 42, 15
 const tokenizer_path = "llama2c/tokenizer.bin"
-
-console.log("Loading model checkpoint from", checkpoint_path)
-
-const { weights, config, headSize } = loadCheckpoint(checkpoint_path)
-
-console.log("Constructed weights!")
-
 const prompt = process.argv[3] || "Once upon a time, there was a "
 const steps = Number(process.argv[2]) // the -n param in llama2.c
 
+const { weights, config, headSize } = loadCheckpoint(checkpoint_path)
 const tokenizer = loadTokenizer(tokenizer_path, config) // need vocabSize from config due to peculiarities of llama2 bin format
 const promptTokens = tokenizePrompt(prompt, tokenizer)
 
