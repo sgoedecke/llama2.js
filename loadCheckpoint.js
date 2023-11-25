@@ -88,7 +88,7 @@ function loadCheckpoint(checkpoint_path) {
     weights.wo = splitFloat32Array(weights.wo, config.nLayers)
         .map((array) => splitFloat32Array(array, config.dim));
 
-    // These are the FFN matmuls with the 3d tensor format [layers, [dim, hiddenDim]]
+    // These are the FFN (feed-forward-network) matmuls with the 3d tensor format [layers, [dim, hiddenDim]]
     weights.w1 = splitFloat32Array(weights.w1, config.nLayers)
         .map((array) => splitFloat32Array(array, config.hiddenDim));
     weights.w2 = splitFloat32Array(weights.w2, config.nLayers) // w2 is [layers, [hiddenDim, dim]]

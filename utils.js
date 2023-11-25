@@ -1,3 +1,5 @@
+const fs = require('fs');
+
 function matmul(output, input, weight) {
     for (let i = 0; i < output.length; i++) {
         output[i] = 0;
@@ -99,5 +101,11 @@ function splitFloat32Array(array, numChunks) {
     return result;
 }
 
+function pauseForKeypress() {
+    var fd = fs.openSync("/dev/stdin", "rs")
+    fs.readSync(fd, new Buffer(1), 0, 1)
+    fs.closeSync(fd)
+}
 
-module.exports = { softmax, randomSample, matmul, rmsnorm, colours, splitFloat32Array }
+
+module.exports = { softmax, randomSample, matmul, rmsnorm, colours, splitFloat32Array, pauseForKeypress }

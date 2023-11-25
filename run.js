@@ -1,16 +1,40 @@
 const fs = require('fs');
-const { rmsnorm, softmax, randomSample, matmul, colours, splitFloat32Array } = require('./utils.js')
+const { rmsnorm, softmax, randomSample, matmul, colours, splitFloat32Array, pauseForKeypress} = require('./utils.js')
 const { loadCheckpoint } = require('./loadCheckpoint.js');
 const { loadTokenizer, tokenizePrompt } = require('./tokenizer.js');
+const {parseArgs} = require('node:util')
+
+const args = ['--num', '--prompt'];
+const cliOptions = {
+  num: {
+    type: 'string',
+    short: 'n',
+  },
+  prompt: {
+    type: 'string',
+    short: 'p'
+  },
+  emphasis: { // trying something out; manually overriding att
+    type: 'string',
+    short: 'e'
+  },
+};
+const cliOptionValues = parseArgs({ args: process.argv, options: cliOptions, allowPositionals: true }).values
+
 
 const checkpoint_path = "stories42M.bin" // 42, 15
 const tokenizer_path = "llama2c/tokenizer.bin"
-const prompt = process.argv[3] || "Once upon a time, there was a "
-const steps = Number(process.argv[2]) // the -n param in llama2.c
+const prompt = cliOptionValues.prompt || "Once upon a time, there was a "
+const steps = Number(cliOptionValues.num) // the -n param in llama2.c
+
+const emphasis = cliOptionValues.emphasis
 
 const { weights, config, headSize } = loadCheckpoint(checkpoint_path)
 const tokenizer = loadTokenizer(tokenizer_path, config) // need vocabSize from config due to peculiarities of llama2 bin format
 const promptTokens = tokenizePrompt(prompt, tokenizer)
+
+
+
 
 // Now we have our prompt tokenized into a list of token ids
 // Let's get started
@@ -20,6 +44,23 @@ promptTokens.unshift(1) // 1 = BOS (beginning of string) token in Llama-2 senten
 const numPromptTokens = promptTokens.length
 let token  = promptTokens[0]
 let next
+
+// calculate position of emphasized string
+const emphasisPos = { left: 0, right: 0 }
+for (let i = 0; i < promptTokens.length; i++) {
+    const head = promptTokens.slice(i).map((token) => tokenizer.vocab[token]).join("")
+    if (!head.includes(emphasis)) {
+        emphasisPos.left = i -1
+        break
+    }
+}
+for (let i = promptTokens.length; i>0; i--) {
+    const tail = promptTokens.slice(-i).map((token) => tokenizer.vocab[token]).join("")
+    if (!tail.includes(emphasis)) {
+        emphasisPos.right = promptTokens.length - i + 1
+        break
+    }
+}
 
 const runState = {
     // current wave of activations
@@ -43,18 +84,44 @@ runState.keyCache = splitFloat32Array(runState.keyCache, config.nLayers)
 runState.valueCache = splitFloat32Array(runState.valueCache, config.nLayers)
     .map((arr) => splitFloat32Array(arr, config.seqLen)) // 3d tensor
 
+function nilOut(arr) {
+    for (let i = 0; i < arr.length; i++) {
+        arr[i] = 0
+    }
+}
 
 const output = []
 
 while (pos < steps) {
     // forward pass
+    // nil out state in between passes to prove we can
+    nilOut(runState.x)
+    nilOut(runState.q)
+    nilOut(runState.k)
+    nilOut(runState.v)
+    nilOut(runState.att)
+    nilOut(runState.hb)
+    nilOut(runState.hb2)
+    nilOut(runState.xb)
+    nilOut(runState.xb2)
+
+
     // copy the token embedding into x
     runState.x = new Float32Array(weights.tokenEmbeddingTable[token])
 
    
     // forward each layer
     for (let layer = 0; layer < config.nLayers; layer++) {
-
+        // nil out state in between layers to prove we can
+        nilOut(runState.q)
+        nilOut(runState.k)
+        nilOut(runState.v)
+        nilOut(runState.att)
+        nilOut(runState.hb)
+        nilOut(runState.hb2)
+        nilOut(runState.xb)
+        nilOut(runState.xb2)
+    
         rmsnorm(runState.xb, runState.x, weights.rmsAttWeight[layer]) // attention rmsnorm
 
         // attention qkv matmuls
@@ -98,10 +165,18 @@ while (pos < steps) {
                 }
 
                 score /= Math.sqrt(headSize);
+
                 // save to att buffer  
                 att[t] = score;
             }
 
+            // juice the attention weights of any tokens in the emphasis segment
+            for (let j = 0; j <= att.length; j++) {              
+                if ((j >= emphasisPos.left - 1) && (j < emphasisPos.right -1)) {
+                    // randomly-ish chosen emphasis factor. more seems to provide gibberish, less gets drowned out
+                    att[j] += 2.5; 
+                }
+            }
 
             // softmax att weights  
             softmax(att, pos + 1);
@@ -145,12 +220,14 @@ while (pos < steps) {
             runState.x[i] += runState.xb[i];
         }
     }
-    
-    // final rmsnorm
-    rmsnorm(runState.x, runState.x, weights.rmsFinalWeight);
+    // skip the logits step entirely if we're still in the prompt
+    if (pos >= numPromptTokens-1) {
+        // final rmsnorm
+        rmsnorm(runState.x, runState.x, weights.rmsFinalWeight);
 
-    // classifier into logits
-    matmul(runState.logits, runState.x, weights.wcls); // could I just reuse tokenEmbeddingTable? some ports do
+        // classifier into logits
+        matmul(runState.logits, runState.x, weights.wcls); // could I just reuse tokenEmbeddingTable? some ports do
+    }
 
     if (pos < numPromptTokens - 1) {
         // still in prompt
@@ -208,11 +285,6 @@ while (pos < steps) {
     // console.log("token", token, pos)
 
     token = next
-
-    // hack to pause for keypress between tokens
-    // var fd = fs.openSync("/dev/stdin", "rs")
-    // fs.readSync(fd, new Buffer(1), 0, 1)
-    // fs.closeSync(fd)
 
     pos += 1
 }

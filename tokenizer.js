@@ -56,9 +56,10 @@ function tokenizePrompt(prompt, tokenizer) {
             if (mergedTokenIndex == undefined || mergedTokenIndex == -1) {
                 continue
             }
-            
-            if (tokenizer.vocabScores[mergedTokenIndex] > bestScore) {
-                bestScore = tokenizer.vocabScores[mergedTokenIndex]
+
+            const mergedTokenScore = tokenizer.vocabScores[mergedTokenIndex]           
+            if (mergedTokenScore > bestScore) {
+                bestScore = mergedTokenScore
                 bestId = mergedTokenIndex
                 bestIdx = i
             }
