@@ -34,7 +34,7 @@ const tokenizer = loadTokenizer(tokenizer_path, config) // need vocabSize from c
 const promptTokens = tokenizePrompt(prompt, tokenizer)
 
 
-
+debugger
 
 // Now we have our prompt tokenized into a list of token ids
 // Let's get started
@@ -198,16 +198,18 @@ while (pos < steps) {
             runState.x[i] += runState.xb2[i]; 
         }
 
+        // Attention is done, now to do the feed-forward-network part
         rmsnorm(runState.xb, runState.x, weights.rmsFFNWeight[layer]) // ffn rmsnorm
         
         matmul(runState.hb, runState.xb, weights.w1[layer])
         matmul(runState.hb2, runState.xb, weights.w3[layer])
 
-        // SwiGLU non-linearity
+        // SwiGLU non-linearity (Gated Linear Unit)
         for (let i = 0; i < config.hiddenDim; i++) {
+            // sigmoid - compresses input into a range between 0 and 1
             runState.hb[i] = runState.hb[i] * (1.0 / (1.0 + Math.exp(-runState.hb[i])));
         }
-        // elementwise mult with w3(x)
+        // elementwise mult with w3(x) to apply the non-linear gating
         for (let i = 0; i < config.hiddenDim; i++) {
             runState.hb[i] = runState.hb[i] * runState.hb2[i];
         }
