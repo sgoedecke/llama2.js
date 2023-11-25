@@ -1,3 +1,21 @@
+First off, a huge thanks to https://github.com/karpathy/llama2.c, which prompted this. I also relied on these JS ports (https://github.com/epicure/llama2.js, https://github.com/agershun/llamajs) for context, and this C++ port (https://github.com/leloykun/llama2.cpp) for examples of breaking out the `float*`s into 2d/3d tensors.
+
+This is mainly my JS port of llama2.c, which contains some tweaks:
+
+- an optional emphasis param, which juices attention of a particular prompt segment
+- an attention-visualization output which highlights key tokens
+- a confidence-estimation output which highlights tokens for which the next logit was clear
+
+This is entirely a learning exercise. I've properly written up what I've learned on my blog at https://www.seangoedecke.com/. Below are my notes that I wrote as I went along.
+
+Another big thanks to GPT-4, which helped me refine my understanding of most of the concepts involved.
+
+
+---
+
+### Notes
+
+
 - tokenizing and decoding is not so bad
 - parsing the .bin llama2.c format is not so bad
 
