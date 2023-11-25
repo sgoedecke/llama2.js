@@ -156,3 +156,7 @@ Why include it? It introduces an important _non-linear_ behaviour: instead of ju
 The "typical" neural network is an input, a bunch of matrix multiplications across various layers, and then an output. At each stage, the input is transformed by the weights of each layer. However, in this naive approach, it can be easy for early layers to get forgotten, since each subsequent layer can dramatically reduce the valence of a previous layer's output.
 
 "Residuals" are a way to avoid this. The idea is to add (not multiply) the output of each layer directly to `state.x`, to effectively create "direct" connections that bypass the weights of future layers. This complicates the architecture of the neural network, allowing the model to encode more sophisticated relationships. It also means that all layers can be important, instead of later layers dominating earlier ones, so we can end up stacking more layers into a model without losing efficacy.
+
+---
+
+OK so, stepping back further - what _is_ a NN? It's a deliberately complex apparatus with a lot of different knobs and levers, which during the training process get set to some configuration that seems to work pretty well. The architecture of a NN is often choices that make the machine more complex, or widen the number of things each knob can do, in order to increase the chance of landing on a useful configuration by trial and error.

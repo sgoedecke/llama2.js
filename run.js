@@ -2,7 +2,7 @@ const fs = require('fs');
 const { rmsnorm, softmax, randomSample, matmul, colours, splitFloat32Array, pauseForKeypress} = require('./utils.js')
 const { loadCheckpoint } = require('./loadCheckpoint.js');
 const { loadTokenizer, tokenizePrompt } = require('./tokenizer.js');
-const {parseArgs} = require('node:util')
+const {parseArgs} = require('node:util') // need a recent version of node
 
 const args = ['--num', '--prompt'];
 const cliOptions = {
