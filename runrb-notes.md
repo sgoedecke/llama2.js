@@ -159,4 +159,22 @@ The "typical" neural network is an input, a bunch of matrix multiplications acro
 
 ---
 
-OK so, stepping back further - what _is_ a NN? It's a deliberately complex apparatus with a lot of different knobs and levers, which during the training process get set to some configuration that seems to work pretty well. The architecture of a NN is often choices that make the machine more complex, or widen the number of things each knob can do, in order to increase the chance of landing on a useful configuration by trial and error.
+OK so, stepping back further - what _is_ a NN? It's a deliberately complex apparatus with a lot of different knobs and levers, which during the training process get set to some configuration that seems to work pretty well. The architecture of a NN is often choices that make the machine more complex, or widen the number of things each knob can do, in order to increase the chance of landing on a useful configuration by trial and error. But you can't just stack complexity forever, or it'll be impossible to find any useful configuration. So you have to make tradeoffs.
+
+---
+
+Can you do confidence estimates by estimating difference between logits? Yes, trivially. Even a naive "difference between the first and third logit" works well, and gives the results you'd expect for prompts that are in and out of domain.
+
+I really should implement actual sampling
+
+---
+
+We can divide LLM development into a few different domains:
+
+- Innovating model architecture: e.g. adding RoPE, SwiGLU, changing head sizes/counts
+- Training new models: acquiring datasets, trying lots of things, etc
+- Inferencing: making changes during the forward pass step, such as my `-e emphasis` work or exposing the attention weights
+- Post-processing: making changes after the logits are produced, such as my confidence estimates work or grammar-aware logit sampling (which I haven't yet done)
+- Prompt engineering, agents, and chaining: engineering a system around a text-in/text-out LLM API
+
+This is roughly in order of difficulty/effort. You can do the last one (and maybe _some_ post-processing) against the OpenAI API. You can do inferencing and post-processing by messing around with a simple local model, like me. But you can't innovate architecture or train without a lot of compute and time.

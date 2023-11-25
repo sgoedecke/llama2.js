@@ -1,8 +1,7 @@
-const fs = require('fs');
 const { rmsnorm, softmax, randomSample, matmul, colours, splitFloat32Array, pauseForKeypress} = require('./utils.js')
 const { loadCheckpoint } = require('./loadCheckpoint.js');
 const { loadTokenizer, tokenizePrompt } = require('./tokenizer.js');
-const {parseArgs} = require('node:util') // need a recent version of node
+const { parseArgs } = require('node:util') // need a recent version of node
 
 const args = ['--num', '--prompt'];
 const cliOptions = {
@@ -258,15 +257,58 @@ while (pos < steps) {
             mashedAtt[i] += att[i]
         }
     }
+
+    // calculate how much the top logits differ
+    const topLogits = Array.from(runState.logits).sort((a, b) => b - a).slice(0, 3)
+    const topLogitDiff = topLogits[0] - topLogits[2]
+
     output.push({
         piece: piece,
         token: token,
-        att: mashedAtt
+        att: mashedAtt,
+        topLogitDiff: topLogitDiff
     })
 
-    console.clear()
-    // console.log(output.map(x => x.piece).join(""))
-    // process.stdout.write(piece)
+    printWithHighlightedConfidence(output)
+    // printWithHighlightedAttention(output)
+    // printOutput(output)
+
+    token = next
+
+    pos += 1
+}
+
+// calculate and print a summary of the total highlighted confidence
+averageTLD = output.map(c => c.topLogitDiff).reduce((a, b) => a + b, 0) / output.length
+averageTLD *= 100 // scale for easier reading
+averageTLD = averageTLD.toFixed(2)
+console.log("\nGeneration completed. Confidence level: " + (averageTLD / output.length))
+
+function printWithHighlightedConfidence(output) {
+    const lastChunk = output[output.length - 1]
+    let colour
+    let buf = ''
+    const diff = lastChunk.topLogitDiff
+    if (diff > 6) {
+        colour = colours.bright
+    } else if (diff > 2) {
+        colour = colours.reset
+    } else {
+        colour = colours.dim
+    }
+    buf += colour
+    buf += lastChunk.piece
+    buf += colours.reset
+    process.stdout.write(buf)
+}
+
+function printOutput(output) {
+    process.stdout.write(output[output.length - 1].piece)
+}
+
+function printWithHighlightedAttention(output) {
+    console.clear() // need to clear and rewrite each time because previous att changes
+
     buf = ''
     output.forEach((chunk, i) => {
         let colour
@@ -283,11 +325,4 @@ while (pos < steps) {
         buf += colours.reset
     })
     process.stdout.write(buf)
-
-    // console.log("token", token, pos)
-
-    token = next
-
-    pos += 1
 }
-
