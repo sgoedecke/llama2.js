@@ -17,7 +17,7 @@ function loadCheckpoint(checkpoint_path) {
         config[key] = checkpoint.readUInt32LE(i * FLOAT_SIZE) // size of float
     })
 
-    console.log(config)
+    // console.log(config)
 
     offset = configKeys.length * FLOAT_SIZE
 

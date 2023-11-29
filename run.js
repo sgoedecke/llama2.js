@@ -269,10 +269,10 @@ while (pos < steps) {
         topLogitDiff: topLogitDiff
     })
 
-    printWithHighlightedConfidence(output)
+    // printWithHighlightedConfidence(output)
     // printWithHighlightedAttention(output)
-    // printOutput(output)
-
+    printOutput(output)
+    // pauseForKeypress()
     token = next
 
     pos += 1

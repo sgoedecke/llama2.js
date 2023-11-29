@@ -3,7 +3,7 @@ const FLOAT_SIZE = 4
 
 function loadTokenizer(tokenizer_path, config) {
     // OK, now let's build the tokenizer
-    console.log("Loading model checkpoint from", tokenizer_path)
+    // console.log("Loading model checkpoint from", tokenizer_path)
     const tokenizerBin = fs.readFileSync(tokenizer_path)
 
     const tokenizer = {}
